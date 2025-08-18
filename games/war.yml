@@ -1,80 +1,11 @@
 # yaml-language-server: $schema=./cgml.schema.json
 cgml_version: "1.3"
+
+inherit: 'high_card.yml'
+
 meta:
   name: "War"
-  author: "Traditional"
   description: "The goal is to win all 52 cards."
-  players:
-    min: 2
-    max: 2
-
-#imports:
-#  - !include 'https://cgml.io/core-components/v1/standard_deck.yaml'
-#  - !include 'https://cgml.io/core-components/v1/zones.yaml'
-components:
-  component_types:
-    deck_types:
-      standard_52:
-        composition:
-          - type: template
-            template: standard_suits
-            values: [2,3,4,5,6,7,8,9,10,J,Q,K,A]
-        rank_hierarchy: [2,3,4,5,6,7,8,9,10,J,Q,K,A]
-    zone_types:
-      draw_pile:
-        ordering: shuffled
-        visibility:
-          all: count_only
-      player_hand:
-        ordering: unordered
-        visibility:
-          owner: all
-          others: count_only
-      play_pile:
-        ordering: lifo
-        visibility:
-          all: all
-      winnings_pile:
-        ordering: fifo
-        visibility:
-          all: hidden
-      discard_pile:
-        ordering: lifo
-        visibility:
-          all: top_card_only
-      book_area:
-        ordering: unordered
-        visibility:
-          all: all
-
-  decks:
-    main_deck:
-      type: standard_52
-
-  zones:
-    - name: deck
-      type: draw_pile
-      of_deck: main_deck
-    - name: player_deck
-      type: draw_pile
-      per_player: true
-    - name: play_area
-      type: play_pile
-      per_player: true
-    - name: winnings
-      type: winnings_pile
-      per_player: true
-
-setup:
-  - action: SHUFFLE
-    target:
-      path: "$.zones.deck"
-  - action: DEAL_ALL
-    from:
-      path: "$.zones.deck"
-    to:
-      path: "$.players[*].zones.player_deck"
-
 flow:
   states:
     Playing:
@@ -132,6 +63,15 @@ flow:
                 - count: [ { path: "$.players[1].zones.winnings" } ]
 
 rules:
+  # Disable parent compare rules (we override tie handling and add War flow)
+  - id: compare_p1_wins
+    disabled: true
+  - id: compare_p2_wins
+    disabled: true
+  - id: compare_tie_deterministic
+    disabled: true
+
+  # Override flip behavior to use simultaneous per-player loop (explicit players anchor)
   - id: flip_cards
     trigger: on.phase.FlipCard
     effect:

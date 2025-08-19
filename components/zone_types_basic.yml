@@ -1,0 +1,12 @@
+components:
+  component_types:
+    zone_types:
+      draw_pile:
+        ordering: shuffled
+        visibility: { all: count_only }
+      play_pile:
+        ordering: lifo
+        visibility: { all: all }
+      winnings_pile:
+        ordering: fifo
+        visibility: { all: hidden }

@@ -1,5 +1,10 @@
 # yaml-language-server: $schema=./cgml.schema.json
 cgml_version: "1.3"
+
+imports:
+  - !include ../components/deck_standard_52.yml
+  - !include ../components/zone_types_basic.yml
+
 meta:
   name: "High Card Duel"
   author: "Traditional"
@@ -9,25 +14,6 @@ meta:
     max: 2
 
 components:
-  component_types:
-    deck_types:
-      standard_52:
-        composition:
-          - type: template
-            template: standard_suits
-            values: [2,3,4,5,6,7,8,9,10,J,Q,K,A]
-        rank_hierarchy: [2,3,4,5,6,7,8,9,10,J,Q,K,A]
-    zone_types:
-      draw_pile:
-        ordering: shuffled
-        visibility: { all: count_only }
-      play_pile:
-        ordering: lifo
-        visibility: { all: all }
-      winnings_pile:
-        ordering: fifo
-        visibility: { all: hidden }
-
   decks:
     main_deck:
       type: standard_52

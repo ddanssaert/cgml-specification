@@ -1,0 +1,9 @@
+components:
+  component_types:
+    deck_types:
+      standard_52:
+        composition:
+          - type: template
+            template: standard_suits
+            values: [2,3,4,5,6,7,8,9,10,J,Q,K,A]
+        rank_hierarchy: [2,3,4,5,6,7,8,9,10,J,Q,K,A]

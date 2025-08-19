@@ -73,7 +73,7 @@ Notes
 CGML supports two special YAML directives (implemented by the CGML loader; not standard YAML):
 
 - `!include 'path-or-url'` — Inlines external YAML at that location before validation.
-- `!inherit 'base.cgml'` — Treats current document as a child of base, inheriting all top-level sections (`components`, `setup`, `flow`, `rules`, `meta`). Child may override/extend following merge rules.
+- `inherit: 'base.cgml'` — Treats current document as a child of base, inheriting all top-level sections (`components`, `setup`, `flow`, `rules`, `meta`). Child may override/extend following merge rules.
 
 ### 5.1 Merge and Override Rules
 - Object maps merge shallowly by key; child keys override parent.
@@ -91,7 +91,7 @@ Example
 ```yaml examples/imports_inherit.yaml
 imports:
   - !include 'https://cgml.io/core-components/v1/standard_52.yaml'
-!inherit 'trick_taking_base.cgml'
+inherit: 'trick_taking_base.cgml'
 ```
 
 ---

@@ -348,12 +348,21 @@ rules:
 - Custom domain events allowed if declared in schema extension
 - `timing: replace` rules replace the event’s default behavior
 
+### 10.2 Event Context Schema
+
+For all events (triggers), the engine provides an event context object accessible via event-scoped paths such as `$.card`, `$.player`, `$.from`, `$.to`, etc. The available fields depend on the event type, for example:
+- `on.draw`: `$.card` (the drawn card), `$.from` (zone), `$.player` (actor)
+- `on.move`: `$.card`, `$.from`, `$.to`, `$.player`
+- `on.phase.<Phase>`: `$.phase`, `$.player`
+Standardized context fields must be specified for engine extensions.
+
 ---
 ## 11. Temporary Values, Refs, and Scope
 - Actions may return values. Use `store_as: <temp_name>` to bind a temporary variable for the current rule evaluation chain.
 - `ref: <temp_name>` references the temporary value later in the same rule’s effect.
 - Scope and lifetime: valid from the step it was stored until the end of that rule’s effect; not visible to other rules unless action explicitly persists state (e.g., `SET_VARIABLE`).
 - For player iteration (`FOR_EACH_PLAYER`), the loop introduces `$player` as a local anchor; nested `store_as` are visible within the loop body.
+- For generic FOR_EACH, `ref:item` is introduced for the iteration item (see §13.7).
 - Paths may include placeholders like `ref:<name>`, which engines substitute before evaluation.
 
 Example
@@ -393,7 +402,7 @@ All logical tests and computed expressions use a composable operator language.
 - `or: [expr, expr, ...]`
 
 ### 12.3 List and Aggregation
-- `list: [expr, expr, ...]`                # construct a list from operands (used with `max`/`min`, etc.)
+- `list: [expr, expr, ...]`                # construct a list from operands (used with `max`/`min`, etc.) — standardized
 - `any: [list_expr, predicate?]`  # if predicate omitted, truthy check
 - `all: [list_expr, predicate?]`
 - `count: [list_expr]`
@@ -403,18 +412,32 @@ All logical tests and computed expressions use a composable operator language.
 - `contains: [list_expr, item_expr]`
 - `in: [item_expr, list_expr]`
 - `exists: [path_expr]`
+- `distinct: [list_expr]`                        # deduplicate items by identity or value
+- `group_by: [list_expr, key_expr]`              # group items by key_expr (returns a map/grouped array)
+
+Example
+```yaml examples/operators_distinct_groupby.yaml
+# Distinct list of ranks in a hand
+distinct:
+  - path: "$.players[current].zones.hand[*].properties.rank"
+
+# Group cards in a hand by rank
+group_by:
+  - path: "$.players[current].zones.hand"
+      - path: "$.card.properties.rank"
+```
 
 Example
 ```yaml examples/operators_list.yaml
 # Build a list of per-player totals to feed into max() (see war.yml)
 max:
   - list:
-      - add:
-          - count: [ { path: "$.players[0].zones.player_deck" } ]
-          - count: [ { path: "$.players[0].zones.winnings" } ]
-      - add:
-          - count: [ { path: "$.players[1].zones.player_deck" } ]
-          - count: [ { path: "$.players[1].zones.winnings" } ]
+    - add:
+      - count: [ { path: "$.players[0].zones.player_deck" } ]
+      - count: [ { path: "$.players[0].zones.winnings" } ]
+    - add:
+      - count: [ { path: "$.players[1].zones.player_deck" } ]
+      - count: [ { path: "$.players[1].zones.winnings" } ]
 ```
 
 ### 12.4 Math
@@ -654,6 +677,21 @@ Notes
       to:
         path: "$.players[$player].zones.play_area"
 
+# FOR_EACH over arbitrary list
+- action: FOR_EACH
+  in:
+    path: "$.players[current].zones.hand[*].properties.rank"
+  do:
+    - action: MOVE
+      from:
+        path: "$.players[current].zones.hand"
+      to:
+        path: "$.players[current].zones.books"
+      filter:
+        isEqual:
+          - path: "$.card.properties.rank"
+          - ref: item
+
 # PARALLEL (wait for all branches)
 - action: PARALLEL
   wait: all
@@ -690,7 +728,26 @@ Notes
     - action: SET_STATE
       state: GameOver
 ```
+**FOR_EACH** iterates the `do` actions once per item in the `in` list value or expression. For each iteration, `ref:item` is bound to the current item value. Nested `store_as` can be used as usual.
 
+### 13.8 REQUEST_INPUT Filtering and Options
+
+- `REQUEST_INPUT.options` accepts `path`, `value`, or operator objects (such as `distinct`, `filter`), which are evaluated to determine allowed input options.
+- The `filter` operand allows expressions that restrict valid options shown to the player.
+
+Example:
+```yaml
+- action: REQUEST_INPUT
+  player: current
+  prompt: "Choose a rank from your hand"
+  options:
+    distinct:
+      - path: "$.players[current].zones.hand[*].properties.rank"
+  filter:
+    isGreaterThan:
+      - path: "$.someGameVariable"
+      - value: 2
+```
 ---
 ## 14. Card and Zone Semantics
 - Card fields: `id` (stable), `properties` (rank, suit, etc.), `face` (`up|down`)
@@ -702,6 +759,7 @@ Notes
 - Deck types declare `rank_hierarchy`: ordered list from lowest to highest.
 - `rank_value` converts a card’s rank or a rank literal into a numeric ordinal according to the originating deck type. If ambiguous, engines must be provided a deck context (`zone.of_deck`).
 - Comparisons of ranks should use `rank_value` to avoid string ambiguity.
+- Comparisons involving card or rank identity require explicit use of `rank_value` or other type-converting operators. Engines must not auto-cast or infer comparable values; all rank comparisons should be explicit.
 
 Example
 ```yaml examples/rank_compare.yaml
@@ -845,6 +903,12 @@ isEqual:
 ## Changelog
 
 ### v1.3
+- Added generic FOR_EACH action for list iteration (FOR_EACH over any list, with ref:item binding).
+- Added distinct and group_by operators for deduplication and aggregation.
+- Documented dynamic REQUEST_INPUT options and filtering via operator expressions.
+- Added event context object schema and path anchors for standard triggers/events.
+- Clarified requirements for explicit rank comparisons (no implicit coercion).
+- Required `list` operator wherever lists are constructed for aggregation.
 - Added path/selector language with anchors (`$currentPlayer`, `top()`, `count()`, `rank_value()`).
 - Expanded operators: `add`, `sub`, `mul`, `div`, `mod`, `sum`, `avg`, `len`, `contains`, `in`, `exists`, `rank_value`, `canPerform`.
 - Standardized actions: `DEAL_ROUND_ROBIN`, `DEAL_ALL`, `MOVE_ALL`, `REVEAL`, `CONCEAL`, `FLIP`, `PEEK`, `LOOK`, `REORDER`, `CHOOSE_RANDOM`, `SEARCH_ZONE`, `MILL`, `REVEAL_MATCHING`, `FOR_EACH_PLAYER`, `PARALLEL`, `IF`, `SKIP_TURN`, `EXTRA_TURN`, `REVERSE_ORDER`, `INSERT_PHASE`, `REMOVE_PHASE`.
@@ -866,6 +930,7 @@ isEqual:
 
 ---
 ## TODOs (for v1.4 and beyond)
+
 - Schema-level formal grammar for selector filters: `$.players[by_id=...]` and custom predicates.
 - Team/coop primitives: team definitions, per_team variables/zones, `$teammates` anchor.
 - Replacement/interrupt priority stack for CCG-like timing conflicts.
@@ -874,3 +939,9 @@ isEqual:
 - Richer event context objects (standardized fields for `on.move`/`on.play`).
 - Library packages: trick-taking core, drafting core, deck-builder core with examples and tests.
 - Formal deprecation policy and migration tooling (lint autofixes for `SET_GAME_STATE` -> `SET_STATE`).
+- Generic **FOR_EACH** action for arbitrary lists, not just players.
+- Distinct/operator support: `distinct`, `group_by` (add examples).
+- Dynamic filtering of options for `REQUEST_INPUT` using expressions.
+- Rich event context schemas for standardized triggers/actions.
+- Clarify rank comparison: engines must require `rank_value` where relevant; no implicit coercion.
+- Add further aggregation/grouping and `list` pattern operators.

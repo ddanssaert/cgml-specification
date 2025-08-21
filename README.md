@@ -102,9 +102,12 @@ CGML uses a minimal, JSONPath-inspired selector syntax inside path operands and 
 ### 6.1 Basics
 - `$` is the document root (post-merge).
 - `$.players` is an ordered list of player objects.
+- **No support for plain dotted paths without a `$` root:** All selectors must be explicitly rooted at `$`. Engines must reject selectors that do not begin with `$`.
+- **No separate `$.shared_zones` root:** Use `$.zones` for all shared zones; `$.shared_zones` is not a valid root in v1.3 and must not be used.
 - Indexing: `$.players[0]`, `$.players[1]`
 - Filters (optional in v1.3): `$.players[by_id=alice]`, `$.players[current]`, `$.players[opponent]`, `$.players[team=red]`
 - Zone access: `$.players[*].zones.<zone_name>` and `$.zones.<zone_name>` for global zones.
+
 ### 6.2 Shorthands/functions
 - `top(<zone or list>)`
 - `bottom(<zone or list>)`
@@ -350,12 +353,18 @@ rules:
 
 ### 10.2 Event Context Schema
 
-For all events (triggers), the engine provides an event context object accessible via event-scoped paths such as `$.card`, `$.player`, `$.from`, `$.to`, etc. The available fields depend on the event type, for example:
-- `on.draw`: `$.card` (the drawn card), `$.from` (zone), `$.player` (actor)
-- `on.move`: `$.card`, `$.from`, `$.to`, `$.player`
-- `on.phase.<Phase>`: `$.phase`, `$.player`
-Standardized context fields must be specified for engine extensions.
+For all events (triggers), the engine provides an event context object accessible via event-scoped paths such as `$.card`, `$.player`, `$.from`, `$.to`, etc. The available fields depend on the event type.
 
+**Standard event contexts:**
+- **on.draw**: `$.card` (the drawn card), `$.from` (zone drawn from), `$.to` (zone drawn to, optional if relevant), `$.player` (the player who draws)
+- **on.move**: `$.card` (the moved card), `$.from` (origin zone), `$.to` (destination zone), `$.player` (player taking the action)
+- **on.play**: `$.card` (the played card), `$.player` (who played), `$.zone` (where played from), `$.to` (zone played to, if different)
+- **on.discard**: `$.card`, `$.from`, `$.to`, `$.player`
+- **on.phase.<Phase>**: `$.phase` (the phase name), `$.player` (affected player, if sequential), `$.state` (state name, if relevant)
+- **on.state.enter.<State>/on.state.exit.<State>**: `$.state` (the state name)
+- **on.turn.begin/on.turn.end**: `$.player` (whose turn), `$.turn_index` (if relevant)
+
+Additional anchors (e.g., `$player`, `$phase`, `$card`, etc.) should be defined in the engine's schema and contextually bound during event evaluation. Paths within rule `condition`/`effect` sections may reference these event context fields using the standard `$` selector root.
 ---
 ## 11. Temporary Values, Refs, and Scope
 - Actions may return values. Use `store_as: <temp_name>` to bind a temporary variable for the current rule evaluation chain.
@@ -389,7 +398,7 @@ All logical tests and computed expressions use a composable operator language.
 
 ### 12.1 Operand Types
 - `value`: literal (number, string, boolean)
-- `path`: selector string (see §6)
+- `path`: selector string (must start with `$`; see §6)
 - `ref`: temporary variable name (see §11)
 - nested operator: object with a single operator key
 
@@ -402,42 +411,31 @@ All logical tests and computed expressions use a composable operator language.
 - `or: [expr, expr, ...]`
 
 ### 12.3 List and Aggregation
-- `list: [expr, expr, ...]`                # construct a list from operands (used with `max`/`min`, etc.) — standardized
-- `any: [list_expr, predicate?]`  # if predicate omitted, truthy check
-- `all: [list_expr, predicate?]`
-- `count: [list_expr]`
-- `len: [list_expr or string]`
-- `max: [list_expr]`
-- `min: [list_expr]`
-- `contains: [list_expr, item_expr]`
-- `in: [item_expr, list_expr]`
-- `exists: [path_expr]`
-- `distinct: [list_expr]`                        # deduplicate items by identity or value
-- `group_by: [list_expr, key_expr]`              # group items by key_expr (returns a map/grouped array)
+- `list: [expr, expr, ...]` — explicit list construction. Required wherever a list operand is needed, e.g., for aggregation or comparison operators. Example: `max: [ list: [expr1, expr2, ...] ]`
+- `any: [list_expr, predicate?]` — returns true if any (optionally filtered by predicate) is true.
+- `all: [list_expr, predicate?]` — returns true if all items (optionally filtered by predicate) are true.
+- `count: [list_expr]` — count the items.
+- `len: [list_expr or string]` — length of a list or string.
+- `max: [list_expr]` — max value in a list.
+- `min: [list_expr]` — min value in a list.
+- `contains: [list_expr, item_expr]` — test membership.
+- `in: [item_expr, list_expr]` — test membership (reverse of contains).
+- `exists: [path_expr]` — does the provided path yield a result.
+- `distinct: [list_expr]` — deduplicate items by identity or value. Engines MUST support this operator for lists of scalars and objects.
+- `group_by: [list_expr, key_expr]` — group items by key_expr (returns a map/grouped array). The key_expr is evaluated in the context of each item.
 
-Example
-```yaml examples/operators_distinct_groupby.yaml
+Examples:
+```yaml
 # Distinct list of ranks in a hand
-distinct:
-  - path: "$.players[current].zones.hand[*].properties.rank"
+options:
+    distinct:
+      - path: "$.players[current].zones.hand[*].properties.rank"
 
 # Group cards in a hand by rank
-group_by:
-  - path: "$.players[current].zones.hand"
-      - path: "$.card.properties.rank"
-```
-
-Example
-```yaml examples/operators_list.yaml
-# Build a list of per-player totals to feed into max() (see war.yml)
-max:
-  - list:
-    - add:
-      - count: [ { path: "$.players[0].zones.player_deck" } ]
-      - count: [ { path: "$.players[0].zones.winnings" } ]
-    - add:
-      - count: [ { path: "$.players[1].zones.player_deck" } ]
-      - count: [ { path: "$.players[1].zones.winnings" } ]
+result:
+  group_by:
+    - path: "$.players[current].zones.hand"
+  - path: "$.card.properties.rank"
 ```
 
 ### 12.4 Math
@@ -450,10 +448,10 @@ max:
 - `avg: [a, b, c, ...]`
 
 ### 12.5 Card/Rank Helpers
-- `rank_value: [rank_or_card]`     # resolves using deck type’s `rank_hierarchy`
+- `rank_value: [rank_or_card]` — resolves to a numeric ordinal using the corresponding deck type’s `rank_hierarchy`. Engines must require explicit use of `rank_value` for rank comparisons; **no implicit string coercion or casting is allowed.**
 
 ### 12.6 Action Feasibility
-- `canPerform: [{ action: <ActionName>, ...params }]`  # optional; engines may simulate dry-run validation
+- `canPerform: [{ action: <ActionName>, ...params }]` — returns true if the given action could be performed (dry-run validation).
 
 ### 12.7 Operator Syntax Rules
 - One operator per object level; operator value is a list (operands) unless noted.
@@ -516,6 +514,46 @@ Notes
   to:
     path: "$.players[*].zones.player_deck"
 ```
+
+### 13.1 DEAL, DEAL_ROUND_ROBIN Examples and Semantics
+
+**DEAL**
+- Distributes N cards from a deck/zone to a single recipient (zone or player).
+- Used to give multiple cards to one destination in one step, typically during setup or gameplay.
+- Does not iterate recipients; does not alter the round-robin order.
+
+```yaml
+setup:
+  - action: DEAL
+    from:
+      path: "$.zones.deck"
+    to:
+      path: "$.players[0].zones.hand"
+    count: 5
+```
+
+**DEAL_ROUND_ROBIN**
+- Distributes N cards at a time from a source to multiple recipients in a round-robin fashion.
+- Recipients are typically specified as a list or pattern (e.g., all players’ hands).
+- Respects `order` parameter (`clockwise`, `counterclockwise`, defaults to play order).
+- Used for initial hands, draft picks, or simultaneous distribution.
+
+```yaml
+setup:
+  - action: DEAL_ROUND_ROBIN
+    from:
+      path: "$.zones.deck"
+    to:
+      path: "$.players[*].zones.hand"
+    count: 1
+    order: clockwise
+```
+
+**Summary Table:**
+| Action              | Recipients   | Typical Uses           |
+|---------------------|-------------|------------------------|
+| DEAL                | single      | Setup, draws, dealing  |
+| DEAL_ROUND_ROBIN    | multiple    | Setup, drafting, games |
 
 ### 13.2 Reveal/Visibility/Face State
 ```yaml examples/actions_visibility.yaml
@@ -734,6 +772,7 @@ Notes
 
 - `REQUEST_INPUT.options` accepts `path`, `value`, or operator objects (such as `distinct`, `filter`), which are evaluated to determine allowed input options.
 - The `filter` operand allows expressions that restrict valid options shown to the player.
+- All option expressions are evaluated **at runtime**, so `distinct`, `group_by`, etc. are fully supported.
 
 Example:
 ```yaml
@@ -758,11 +797,11 @@ Example:
 ## 15. Rank and Comparison Semantics
 - Deck types declare `rank_hierarchy`: ordered list from lowest to highest.
 - `rank_value` converts a card’s rank or a rank literal into a numeric ordinal according to the originating deck type. If ambiguous, engines must be provided a deck context (`zone.of_deck`).
-- Comparisons of ranks should use `rank_value` to avoid string ambiguity.
+- **All comparisons of ranks must use `rank_value` to avoid string ambiguity. Engines must NOT auto-cast or infer comparable values; explicit use of `rank_value` is always required for rank-based operation.**
 - Comparisons involving card or rank identity require explicit use of `rank_value` or other type-converting operators. Engines must not auto-cast or infer comparable values; all rank comparisons should be explicit.
 
-Example
-```yaml examples/rank_compare.yaml
+Example:
+```yaml
 condition:
   isGreaterThan:
     - rank_value:
@@ -919,6 +958,12 @@ isEqual:
 - Face state and visibility formalized at card and zone levels.
 - Deterministic RNG controls in `meta`.
 - Back-compat note for `SET_GAME_STATE` alias.
+- **Selector rules update: all selectors must be rooted at `$` (no plain dotted paths); no `$.shared_zones` root.**
+- **rank_value now always required for rank comparisons—no implicit string comparison allowed.**
+- **Operators `distinct`, `group_by` are mandatory for lists of scalars and objects.**
+- **List construction via `list` operator is always required for multi-element aggregation/comparison operands.**
+- **Expanded event context schema for all major triggers/events.**
+- **Added explicit DEAL vs DEAL_ROUND_ROBIN action distinctions and examples.**
 
 ### v1.2
 - Unified operator/condition language (no ad hoc conditions).

@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=./cgml.schema.json
-cgml_version: 1.2
+cgml_version: "1.3"
 meta:
   name: "Go Fish"
   author: "Traditional"
@@ -49,16 +49,20 @@ components:
 
   variables:
     - name: book_count
-      per_player: true
+      scope: per_player
       initial_value: 0
 
 setup:
   - action: SHUFFLE
-    target: zones.deck
-  - action: DEAL
-    from: zones.deck
-    to: zones.hand
+    target:
+      path: "$.zones.deck"
+  - action: DEAL_ROUND_ROBIN
+    from:
+      path: "$.zones.deck"
+    to:
+      path: "$.players[*].zones.hand"
     count: 5
+    order: clockwise
 
 flow:
   states:
@@ -70,125 +74,142 @@ flow:
   player_order: clockwise
 
   transitions:
-    - from: Playing
+    - id: deck_empty
+      from: Playing
       to: GameOver
       condition:
         isEqual:
-          - path: zones.deck.card_count
+          - count:
+              - path: "$.zones.deck"
           - value: 0
 
   win_condition:
     description: "The player with the most books when the deck is empty wins."
     evaluator:
       max:
-        - path: players.book_count
+        - list:
+            - path: "$.players[0].book_count"
+            - path: "$.players[1].book_count"
+            # Add more lines as needed for 3+ players (see engine note below)
 
 rules:
-  - id: player_asks_for_card
+  - id: ask_for_card
     trigger: on.phase.Ask
     effect:
       - action: REQUEST_INPUT
         player: current
         prompt: "Choose a player to ask."
         options:
-          type: player
-        filter:
-          not:
-            isEqual:
-              - path: player.id
-              - path: player.current.id
+          path: "$.players[opponent]"
         store_as: target_player
       - action: REQUEST_INPUT
         player: current
         prompt: "Choose a rank to ask for."
         options:
-          type: rank
-        filter:
           distinct:
-            - map:
-                - path: player.current.hand
-                - select: card.rank
+            - path: "$.players[current].zones.hand[*].properties.rank"
         store_as: target_rank
 
-  - id: request_is_successful
+  - id: resolve_request_success
     trigger: on.phase.Resolve
     condition:
       isGreaterThan:
         - count:
             - filter:
-                - path: ref:target_player.hand
+                - path: "$.players[by_id=ref:target_player].zones.hand"
                 - isEqual:
-                    - path: card.rank
-                    - value: ref:target_rank
+                    - path: "$.card.properties.rank"
+                    - ref: target_rank
         - value: 0
     effect:
       - action: MOVE
-        from: ref:target_player.hand
-        to: player.current.hand
+        from:
+          path: "$.players[by_id=ref:target_player].zones.hand"
+        to:
+          path: "$.players[current].zones.hand"
         filter:
           isEqual:
-            - path: card.rank
-            - value: ref:target_rank
-      - action: REPEAT_TURN
+            - path: "$.card.properties.rank"
+            - ref: target_rank
+      - action: EXTRA_TURN
+        player: current
 
-  - id: request_fails_go_fish
+  - id: resolve_request_fail
     trigger: on.phase.Resolve
     condition:
       isEqual:
         - count:
             - filter:
-                - path: ref:target_player.hand
+                - path: "$.players[by_id=ref:target_player].zones.hand"
                 - isEqual:
-                    - path: card.rank
-                    - value: ref:target_rank
+                    - path: "$.card.properties.rank"
+                    - ref: target_rank
         - value: 0
     effect:
-      - action: DRAW
-        player: current
+      - action: MOVE
+        from:
+          top:
+            - path: "$.zones.deck"
+        to:
+          path: "$.players[current].zones.hand"
         count: 1
         store_as: drawn_card
-      - action: REPEAT_TURN
+      - action: EXTRA_TURN
+        player: current
         condition:
           isEqual:
-            - path: ref:drawn_card.rank
-            - value: ref:target_rank
+            - path: "$.players[current].zones.hand[-1].properties.rank"
+            - ref: target_rank
 
   - id: check_for_books
     trigger: on.phase.CheckForBooks
     effect:
-      - action: FIND_AND_STORE
-        in: player.current.hand
-        group_by: card.rank
-        having:
-          isEqual:
-            - count: group
-            - value: 4
-        store_as: completed_book_ranks
       - action: FOR_EACH
-        in: ref:completed_book_ranks
+        in:
+          distinct:
+            - path: "$.players[current].zones.hand[*].properties.rank"
         do:
-          - action: MOVE
-            from: player.current.hand
-            to: player.current.books
-            filter:
+          - action: IF
+            condition:
               isEqual:
-                - path: card.rank
-                - value: ref:item
-          - action: INCREMENT_VARIABLE
-            path: player.current.book_count
-            value: 1
+                - count:
+                    - filter:
+                        - path: "$.players[current].zones.hand"
+                        - isEqual:
+                            - path: "$.card.properties.rank"
+                            - ref: item
+                - value: 4
+            then:
+              - action: MOVE
+                from:
+                  path: "$.players[current].zones.hand"
+                to:
+                  path: "$.players[current].zones.books"
+                filter:
+                  isEqual:
+                    - path: "$.card.properties.rank"
+                    - ref: item
+              - action: INCREMENT
+                path:
+                  path: "$.players[current].book_count"
+                by: 1
 
   - id: replenish_hand
     trigger: on.phase.CheckForBooks
     condition:
       isEqual:
-        - path: player.current.hand.card_count
+        - count:
+            - path: "$.players[current].zones.hand"
         - value: 0
     effect:
-      - action: DRAW
-        player: current
-        from: zones.deck
+      - action: MOVE
+        from:
+          top:
+            - path: "$.zones.deck"
+        to:
+          path: "$.players[current].zones.hand"
         count:
           min:
             - value: 5
-            - path: zones.deck.card_count
+            - count:
+                - path: "$.zones.deck"

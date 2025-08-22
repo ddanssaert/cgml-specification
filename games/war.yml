@@ -41,12 +41,12 @@ flow:
       condition:
         or:
           - isLessThan:
-              - add:
+              - sum:
                   - count: [ { path: "$.players[0].zones.player_deck" } ]
                   - count: [ { path: "$.players[0].zones.winnings" } ]
               - value: 4
           - isLessThan:
-              - add:
+              - sum:
                   - count: [ { path: "$.players[1].zones.player_deck" } ]
                   - count: [ { path: "$.players[1].zones.winnings" } ]
               - value: 4
@@ -55,10 +55,10 @@ flow:
     evaluator:
       max:
         - list:
-            - add:
+            - sum:
                 - count: [ { path: "$.players[0].zones.player_deck" } ]
                 - count: [ { path: "$.players[0].zones.winnings" } ]
-            - add:
+            - sum:
                 - count: [ { path: "$.players[1].zones.player_deck" } ]
                 - count: [ { path: "$.players[1].zones.winnings" } ]
 
@@ -334,12 +334,12 @@ rules:
     condition:
       or:
         - isLessThan:
-            - add:
+            - sum:
                 - count: [ { path: "$.players[0].zones.player_deck" } ]
                 - count: [ { path: "$.players[0].zones.winnings" } ]
             - value: 4
         - isLessThan:
-            - add:
+            - sum:
                 - count: [ { path: "$.players[1].zones.player_deck" } ]
                 - count: [ { path: "$.players[1].zones.winnings" } ]
             - value: 4
@@ -349,12 +349,12 @@ rules:
         condition:
           and:
             - isLessThan:
-                - add:
+                - sum:
                     - count: [ { path: "$.players[0].zones.player_deck" } ]
                     - count: [ { path: "$.players[0].zones.winnings" } ]
                 - value: 4
             - isLessThan:
-                - add:
+                - sum:
                     - count: [ { path: "$.players[1].zones.player_deck" } ]
                     - count: [ { path: "$.players[1].zones.winnings" } ]
                 - value: 4
@@ -362,10 +362,10 @@ rules:
           - action: IF
             condition:
               isGreaterThan:
-                - add:
+                - sum:
                     - count: [ { path: "$.players[0].zones.player_deck" } ]
                     - count: [ { path: "$.players[0].zones.winnings" } ]
-                - add:
+                - sum:
                     - count: [ { path: "$.players[1].zones.player_deck" } ]
                     - count: [ { path: "$.players[1].zones.winnings" } ]
             then:
@@ -383,10 +383,10 @@ rules:
               - action: IF
                 condition:
                   isGreaterThan:
-                    - add:
+                    - sum:
                         - count: [ { path: "$.players[1].zones.player_deck" } ]
                         - count: [ { path: "$.players[1].zones.winnings" } ]
-                    - add:
+                    - sum:
                         - count: [ { path: "$.players[0].zones.player_deck" } ]
                         - count: [ { path: "$.players[0].zones.winnings" } ]
                 then:
@@ -417,7 +417,7 @@ rules:
           - action: IF
             condition:
               isLessThan:
-                - add:
+                - sum:
                     - count: [ { path: "$.players[0].zones.player_deck" } ]
                     - count: [ { path: "$.players[0].zones.winnings" } ]
                 - value: 4

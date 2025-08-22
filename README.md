@@ -441,6 +441,44 @@ All logical tests and computed expressions use a composable operator language.
 - `and: [expr, expr, ...]`
 - `or: [expr, expr, ...]`
 
+> **Note:** Conditions must always resolve to boolean. Wrap any non-boolean expressions in a comparison operator as shown in the examples.
+
+### 12.0 Operator Engine: Condition Boolean Requirement
+
+- **All top-level `condition` fields MUST evaluate to boolean values.** If you use an aggregation or math operator (such as `max`, `min`, `sum`, `avg`, `count`, etc.), always wrap it with an appropriate comparison (like `isEqual`, `isGreaterThan`, `isLessThan`) so that the result is true or false. The engine validates that `condition` never returns raw integers, lists, or other types.
+
+Example (**invalid**):
+```yaml
+condition:
+  max:
+    - list:
+        - rank_value:
+            - path: "$.players[0].zones.play_area"
+        - rank_value:
+            - path: "$.players[1].zones.play_area"
+```
+Example (**valid**):
+```yaml
+condition:
+  isEqual:
+    - rank_value:
+        - path: "$.players[0].zones.play_area"
+    - max:
+        - list:
+            - rank_value:
+                - path: "$.players[0].zones.play_area"
+            - rank_value:
+                - path: "$.players[1].zones.play_area"
+```
+
+### 12.0.1 Core Operator Return Types and Wrapping
+
+- **Boolean-returning operators:**
+  - `isEqual`, `isGreaterThan`, `isLessThan`, `not`, `and`, `or`, `any`, `all`, `contains`, `in`, `exists`, `canPerform` always return boolean.
+- **Math/Aggregation/list operators:**
+  - `sum`, `add`, `sub`, `mul`, `div`, `mod`, `avg`, `max`, `min`, `count`, `len`, `distinct`, `group_by`, `rank_value` return non-boolean values, and MUST be wrapped in a comparison when used in `condition`.
+
+
 ### 12.3 List and Aggregation
 - `list: [expr, expr, ...]` — explicit list construction. Required wherever a list operand is needed, e.g., for aggregation or comparison operators. Example: `max: [ list: [expr1, expr2, ...] ]`
 - `any: [list_expr, predicate?]` — returns true if any (optionally filtered by predicate) is true.
@@ -454,6 +492,8 @@ All logical tests and computed expressions use a composable operator language.
 - `exists: [path_expr]` — does the provided path yield a result.
 - `distinct: [list_expr]` — deduplicate items by identity or value. Engines MUST support this operator for lists of scalars and objects.
 - `group_by: [list_expr, key_expr]` — group items by key_expr (returns a map/grouped array). The key_expr is evaluated in the context of each item.
+
+> **Explicit list construction required:** For ALL aggregation, grouping, or multi-operand list operations, you MUST use the `list:` operator (even if there are only two elements).
 
 Examples:
 ```yaml
@@ -469,6 +509,19 @@ result:
     - path: "$.card.properties.rank"
 ```
 
+### 12.3.1 top/all/bottom Path Functions — Syntax
+
+Path functions such as `top`, `bottom`, and `all` may be used as operator keywords or as object keys. The following are equivalent:
+
+```yaml
+- top:
+    - path: "$.players[0].zones.deck"
+```
+...or as path functions (if engine supports):
+```yaml
+- path: "$.players[0].zones.deck.top"
+```
+
 ### 12.4 Math
 - `add: [a, b]`
 - `sub: [a, b]`
@@ -482,11 +535,31 @@ result:
 - `rank_value: [rank_or_card]` — resolves to a numeric ordinal using the corresponding deck type’s `rank_hierarchy`. Engines must require explicit use of `rank_value` for rank comparisons; **no implicit string coercion or casting is allowed.**
 
 ### 12.6 Action Feasibility
-- `canPerform: [{ action: <ActionName>, ...params }]` — returns true if the given action could be performed (dry-run validation).
+- `canPerform: [{ action: <ActionName>, ...params }]` — returns true if the given action could be performed at this moment (dry-run validation). This does not alter game state, it only tests preconditions. If non-action or malformed parameters are provided, the engine must report an error or warning. Always returns boolean.
 
 ### 12.7 Operator Syntax Rules
 - One operator per object level; operator value is a list (operands) unless noted.
 - Operands themselves may be `value`, `path`, `ref`, or nested operator objects.
+
+### 12.8 rank_value Context Requirement
+
+- All rank-based comparisons or calculations **must use the `rank_value` operator**. The engine requires an explicit card or deck type context—typically via operand card, or the zone’s deck. If given only a string rank and the context is ambiguous, validation must fail. There is **never automatic coercion** of rank string/numeric values.
+
+### 12.9 Example: Aggregation & Deduplication Operators
+
+Examples:
+```yaml
+# Unique ranks in a player hand
+options:
+  distinct:
+    - path: "$.players[current].zones.hand[*].properties.rank"
+
+# Group cards by rank
+result:
+  group_by:
+    - path: "$.players[current].zones.hand"
+    - path: "$.card.properties.rank"
+```
 
 ---
 ## 13. Actions Vocabulary

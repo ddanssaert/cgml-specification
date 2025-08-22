@@ -57,12 +57,12 @@ flow:
       condition:
         and:
           - isEqual:
-              - add:
+              - sum:
                   - count: [ { path: "$.players[0].zones.player_deck" } ]
                   - count: [ { path: "$.players[0].zones.play_area" } ]
               - value: 0
           - isEqual:
-              - add:
+              - sum:
                   - count: [ { path: "$.players[1].zones.player_deck" } ]
                   - count: [ { path: "$.players[1].zones.play_area" } ]
               - value: 0

@@ -88,9 +88,7 @@ flow:
     evaluator:
       max:
         - list:
-            - path: "$.players[0].book_count"
-            - path: "$.players[1].book_count"
-            # Add more lines as needed for 3+ players (see engine note below)
+            - path: "$.players[*].book_count"
 
 rules:
   - id: ask_for_card

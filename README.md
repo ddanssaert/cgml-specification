@@ -97,57 +97,80 @@ inherit: 'trick_taking_base.cgml'
 ---
 ## 6. Path and Selector Language
 
-CGML uses a minimal, JSONPath-inspired selector syntax inside path operands and action references.
+CGML uses a minimal, JSONPath-inspired selector syntax for referencing items (players, cards, zones, etc.), with strict requirements and expanded features per v1.3.
 
 ### 6.1 Basics
-- `$` is the document root (post-merge).
-- `$.players` is an ordered list of player objects.
-- **No support for plain dotted paths without a `$` root:** All selectors must be explicitly rooted at `$`. Engines must reject selectors that do not begin with `$`.
-- **No separate `$.shared_zones` root:** Use `$.zones` for all shared zones; `$.shared_zones` is not a valid root in v1.3 and must not be used.
-- Indexing: `$.players[0]`, `$.players[1]`
-- Filters (optional in v1.3): `$.players[by_id=alice]`, `$.players[current]`, `$.players[opponent]`, `$.players[team=red]`
-- Zone access: `$.players[*].zones.<zone_name>` and `$.zones.<zone_name>` for global zones.
+- **All selectors must be explicitly rooted at `$`.** Plain dotted paths without `$` are forbidden and rejected by the engine.
+- `$.players` gives the ordered list of player objects.
+- **Selector filter support** is implemented, including:  
+  - `$.players[by_id=alice]`
+  - `$.players[current]` (current player anchor)
+  - `$.players[opponent]` (opponent(s) relative to current context)
+  - `$.players[team=red]`
+- **No separate `$.shared_zones` root**. All shared zones are accessible via `$.zones`. The spec and implementation do not support `$.shared_zones`; if found, engines must error or map it to `$.zones`.
+- **Indexing:** `$.players[0]`, `$.players[1]`
+- **Filters:** As above; any path segment can use selector filters.
 
-### 6.2 Shorthands/functions
+### 6.2 Path Functions
+All of the following are supported in selector expressions:
 - `top(<zone or list>)`
 - `bottom(<zone or list>)`
-- `all(<zone>)` -> list of cards
-- `count(<zone or list>)` -> integer
+- `all(<zone>)` → Returns list of cards from a zone.
+- `count(<zone or list>)` → Integer count.
 - `owner(<card>)`
-- `rank(<card>)` -> rank symbol/value
-- `rank_value(<rank or card>)` -> numeric ordinal based on deck type’s `rank_hierarchy`
+- `rank(<card>)` → Card rank symbol or value.
+- `rank_value(<rank or card>)` → Numeric (as per `deck_type.rank_hierarchy`).
 
 ### 6.3 Anchors
+Your engine provides these:
 - `$currentPlayer`, `$activeState`, `$currentPhase`, `$turnOrder`
-- Engines provide these anchors according to the flow (see §9).
 
-### 6.4 Card Property Access
-Cards may include properties (e.g., suit, rank); access via card fields and operators:
-```yaml examples/path_card_access.yaml
-# Operator style
-rank_value:
-  - top:
-      - path: "$.players[0].zones.play_area"
+### 6.4 Path Placeholders / Reference Substitution
+- Within any `path: ...` string, write `ref:<name>` to substitute in the current value of that reference, scoped as per §11 (see examples below).
+- Example:
+  ```yaml
+  - action: MOVE
+    from:
+      path: "$.players[by_id=ref:selected_player].zones.hand"
+    to:
+      path: "$.players[current].zones.hand"
+  ```
+  This moves a card from a dynamically-chosen player's hand.
 
-# Property access (engine-normalized)
-isEqual:
-  - path: "$.players[0].zones.play_area.top_card.properties.rank"
-  - value: "A"
-```
+### 6.5 Operator/Selector Support: distinct and group_by
+- **Implemented:**
+  - `distinct:` deduplicates a list by value.
+  - `group_by:` groups a list using a key expression.
+- Use these with path-derived lists or composite values.
+- **Example** (from Go Fish or similar):
+  ```yaml
+  effect:
+    - action: REQUEST_INPUT
+      player: current
+      prompt: "Choose a rank from your hand"
+      options:
+        distinct:
+          - path: "$.players[current].zones.hand[*].properties.rank"
+      store_as: chosen_rank
+  ```
+  Here, `distinct` ensures only unique ranks are presented as choices.
 
-### 6.5 Selectors in Operands and Action Parameters
-- In operator operands and action parameters, use:
-  - `path: "<selector>"` for paths
-  - `value: <literal>` for constants
-  - `ref: "<temp_name>"` for temporary values created via `store_as` (see §11)
-  - nested operator objects (e.g., `top: [ { path: "..." } ]`)
-
-Note: Path strings MAY include `ref` placeholders like `ref:<name>` where engines substitute the referenced value before evaluation.
-
+### 6.6 Explicit "list" construction for aggregation/comparison
+- When an operator expects a list, you must use the `list:` operator.
+- Example:
+  ```yaml
+  max:
+    - list:
+        - rank_value:
+            - path: "$.players[0].zones.play_area.top_card"
+        - rank_value:
+            - path: "$.players[1].zones.play_area.top_card"
+  ```
 ---
 ## 7. Components Block
 
 Defines reusable types and concrete instances.
+
 
 ### 7.1 Component Types
 - `component_types.deck_types.<name>`
@@ -191,9 +214,13 @@ components:
     zone_types:
       draw_pile:
         ordering: shuffled
+        default_face: down
+        allows_reorder: false
         visibility: { all: count_only }
       player_hand:
         ordering: unordered
+        default_face: up
+        allows_reorder: false
         visibility:
           owner: all
           others: count_only
@@ -204,9 +231,11 @@ components:
     - name: deck
       type: draw_pile
       of_deck: main_deck
+      owner_scope: global
     - name: hand
       type: player_hand
       per_player: true
+      owner_scope: player
 ```
 
 ### 7.4 Variables
@@ -224,8 +253,10 @@ components:
     - name: score
       scope: per_player
       initial_value: 0
+      computed: false
     - name: total_cards
       computed: true
+      scope: global
       expression:
         sum:
           - count:
@@ -435,7 +466,7 @@ options:
 result:
   group_by:
     - path: "$.players[current].zones.hand"
-  - path: "$.card.properties.rank"
+    - path: "$.card.properties.rank"
 ```
 
 ### 12.4 Math
